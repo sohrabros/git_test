@@ -5,6 +5,7 @@ class ChessGame {
         this.selectedSquare = null;
         this.validMoves = [];
         this.capturedPieces = { white: [], black: [] };
+        this.gameOver = false;
         this.initBoard();
         this.renderBoard();
         this.attachEventListeners();
@@ -108,6 +109,8 @@ class ChessGame {
     }
 
     handleSquareClick(row, col) {
+        if (this.gameOver) return;
+
         const piece = this.board[row][col];
 
         // If a square is already selected
@@ -119,8 +122,9 @@ class ChessGame {
                 this.movePiece(selectedRow, selectedCol, row, col);
                 this.selectedSquare = null;
                 this.validMoves = [];
-                this.renderBoard();
                 this.currentPlayer = this.currentPlayer === 'white' ? 'black' : 'white';
+                this.checkGameState();
+                this.renderBoard();
             } else if (piece && piece.color === this.currentPlayer) {
                 // Select different piece of same color
                 this.selectSquare(row, col);
@@ -191,7 +195,10 @@ class ChessGame {
                 break;
         }
 
-        return moves;
+        // Filter out moves that would leave the king in check
+        return moves.filter(([toRow, toCol]) => {
+            return !this.wouldBeInCheck(row, col, toRow, toCol, piece.color);
+        });
     }
 
     getPawnMoves(row, col, color) {
@@ -337,9 +344,124 @@ class ChessGame {
         return row >= 0 && row < 8 && col >= 0 && col < 8;
     }
 
+    findKing(color) {
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const piece = this.board[row][col];
+                if (piece && piece.type === 'king' && piece.color === color) {
+                    return [row, col];
+                }
+            }
+        }
+        return null;
+    }
+
+    isSquareUnderAttack(row, col, byColor) {
+        // Check if the square at (row, col) is under attack by any piece of color byColor
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const piece = this.board[r][c];
+                if (piece && piece.color === byColor) {
+                    const moves = this.getPseudoLegalMoves(r, c, byColor);
+                    if (moves.some(([mr, mc]) => mr === row && mc === col)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    getPseudoLegalMoves(row, col, color) {
+        // Get moves without checking if they leave king in check
+        const piece = this.board[row][col];
+        if (!piece) return [];
+
+        switch (piece.type) {
+            case 'pawn':
+                return this.getPawnMoves(row, col, color);
+            case 'rook':
+                return this.getRookMoves(row, col, color);
+            case 'knight':
+                return this.getKnightMoves(row, col, color);
+            case 'bishop':
+                return this.getBishopMoves(row, col, color);
+            case 'queen':
+                return this.getQueenMoves(row, col, color);
+            case 'king':
+                return this.getKingMoves(row, col, color);
+            default:
+                return [];
+        }
+    }
+
+    isInCheck(color) {
+        const kingPos = this.findKing(color);
+        if (!kingPos) return false;
+
+        const [kingRow, kingCol] = kingPos;
+        const opponentColor = color === 'white' ? 'black' : 'white';
+        return this.isSquareUnderAttack(kingRow, kingCol, opponentColor);
+    }
+
+    wouldBeInCheck(fromRow, fromCol, toRow, toCol, color) {
+        // Simulate the move and check if king would be in check
+        const piece = this.board[fromRow][fromCol];
+        const capturedPiece = this.board[toRow][toCol];
+
+        // Make the move temporarily
+        this.board[toRow][toCol] = piece;
+        this.board[fromRow][fromCol] = null;
+
+        const inCheck = this.isInCheck(color);
+
+        // Undo the move
+        this.board[fromRow][fromCol] = piece;
+        this.board[toRow][toCol] = capturedPiece;
+
+        return inCheck;
+    }
+
+    hasAnyValidMoves(color) {
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const piece = this.board[row][col];
+                if (piece && piece.color === color) {
+                    const validMoves = this.getValidMoves(row, col);
+                    if (validMoves.length > 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    checkGameState() {
+        const inCheck = this.isInCheck(this.currentPlayer);
+        const hasValidMoves = this.hasAnyValidMoves(this.currentPlayer);
+
+        if (!hasValidMoves) {
+            if (inCheck) {
+                // Checkmate
+                this.gameOver = true;
+                const winner = this.currentPlayer === 'white' ? 'Black' : 'White';
+                this.gameStatus = `Checkmate! ${winner} wins!`;
+            } else {
+                // Stalemate
+                this.gameOver = true;
+                this.gameStatus = 'Stalemate! Game is a draw.';
+            }
+        } else if (inCheck) {
+            this.gameStatus = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn - Check!`;
+        } else {
+            this.gameStatus = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
+        }
+    }
+
     updateStatus() {
         const statusElement = document.querySelector('.status');
-        statusElement.textContent = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
+        statusElement.textContent = this.gameStatus || `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
     }
 
     renderCapturedPieces() {
@@ -360,6 +482,8 @@ class ChessGame {
         this.selectedSquare = null;
         this.validMoves = [];
         this.capturedPieces = { white: [], black: [] };
+        this.gameOver = false;
+        this.gameStatus = "White's Turn";
         this.initBoard();
         this.renderBoard();
     }
